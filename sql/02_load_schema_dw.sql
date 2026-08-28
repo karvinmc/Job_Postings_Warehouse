@@ -69,3 +69,45 @@ FROM read_csv(
         'https://storage.googleapis.com/sql_de/skills_job_dim.csv',
         AUTO_DETECT = TRUE
     );
+
+-- Data validation
+SELECT 'Dim Company' AS table_name,
+    COUNT(*) AS row_count
+FROM dim_company
+UNION ALL
+SELECT 'Dim Skills',
+    COUNT(*) AS row_count
+FROM dim_skills
+UNION ALL
+SELECT 'Fact Job Postings',
+    COUNT(*) AS row_count
+FROM fact_job_postings
+UNION ALL
+SELECT 'Bridge Job Skills',
+    COUNT(*) AS row_count
+FROM bridge_job_skills;
+
+-- Sample data from each table
+SELECT 'Company Dimension Sample' AS info;
+
+SELECT *
+FROM dim_company
+LIMIT 5;
+
+SELECT 'Skills Dimension Sample' AS info;
+
+SELECT *
+FROM dim_skills
+LIMIT 5;
+
+SELECT 'Job Postings Fact Sample' AS info;
+
+SELECT *
+FROM fact_job_postings
+LIMIT 5;
+
+SELECT 'Job Skills Bridge Sample' AS info;
+
+SELECT *
+FROM bridge_job_skills
+LIMIT 5;
