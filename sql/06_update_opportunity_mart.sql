@@ -1,5 +1,5 @@
--- Step 1: Build the incoming snapshot with the same median-based
--- scoring logic used in the initial load.
+-- Staging: same scoring logic as the initial load, applied to the current
+-- state of fact_job_postings, so it can be diffed against the mart below
 CREATE OR REPLACE TEMP TABLE staging_job_opportunities AS WITH title_median_salary AS (
         SELECT job_title_short,
             MEDIAN(salary_year_avg) OVER (PARTITION BY job_title_short) AS median_salary_for_title,
@@ -60,8 +60,8 @@ SELECT job_id,
     END AS opportunity_tier
 FROM scored;
 
--- Step 2: MERGE -- single statement handles UPDATE, INSERT, and DELETE
-MERGE INTO opportunity_mart.snapshot_job_opportunity AS target USING staging_job_opportunities AS source ON target.job_id = source.job_id -- Posting exists in both, but its computed tier has changed
+-- Single MERGE handles insert, update, and soft-delete in one statement
+MERGE INTO opportunity_mart.snapshot_job_opportunity AS target USING staging_job_opportunities AS source ON target.job_id = source.job_id -- Tier changed since last snapshot -> refresh the row
 WHEN MATCHED
 AND target.opportunity_tier <> source.opportunity_tier THEN
 UPDATE
@@ -77,7 +77,7 @@ SET company_id = source.company_id,
     pays_above_title_median = source.pays_above_title_median,
     opportunity_score = source.opportunity_score,
     opportunity_tier = source.opportunity_tier,
-    snapshot_date = CURRENT_DATE -- Posting is new to this batch -> insert it
+    snapshot_date = CURRENT_DATE -- New posting -> insert
     WHEN NOT MATCHED BY TARGET THEN
 INSERT (
         job_id,
@@ -110,7 +110,7 @@ VALUES (
         source.opportunity_score,
         source.opportunity_tier,
         CURRENT_DATE
-    ) -- Posting no longer exists in source -> remove it from the snapshot
+    ) -- Posting no longer in source (closed/filled) -> remove from snapshot
     WHEN NOT MATCHED BY SOURCE THEN DELETE
 RETURNING merge_action,
     *;
@@ -123,14 +123,13 @@ FROM opportunity_mart.snapshot_job_opportunity
 GROUP BY job_id
 HAVING COUNT(*) > 1;
 
--- Current tier distribution
 SELECT opportunity_tier,
     COUNT(*) AS posting_count
 FROM opportunity_mart.snapshot_job_opportunity
 GROUP BY opportunity_tier
 ORDER BY posting_count DESC;
 
--- Total row count should match the size of the incoming snapshot
+-- Mart row count should match the staging snapshot size
 SELECT (
         SELECT COUNT(*)
         FROM opportunity_mart.snapshot_job_opportunity

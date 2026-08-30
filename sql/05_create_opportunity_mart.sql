@@ -2,6 +2,9 @@ DROP SCHEMA IF EXISTS opportunity_mart CASCADE;
 
 CREATE SCHEMA opportunity_mart;
 
+-- Grain: one row per job posting
+-- opportunity_score (0-4): +1 each for remote, no-degree-required, health insurance,
+-- and salary above the median for that job_title_short
 CREATE TABLE opportunity_mart.snapshot_job_opportunity (
     job_id BIGINT PRIMARY KEY,
     company_id BIGINT,
@@ -19,7 +22,6 @@ CREATE TABLE opportunity_mart.snapshot_job_opportunity (
     snapshot_date DATE NOT NULL
 );
 
--- Initial load
 WITH title_median_salary AS (
     SELECT job_title_short,
         MEDIAN(salary_year_avg) OVER (PARTITION BY job_title_short) AS median_salary_for_title,
@@ -34,6 +36,7 @@ scored AS (
         job_schedule_type,
         salary_year_avg,
         salary_hour_avg,
+        -- NULL treated as false: unknown status counts against the score
         COALESCE(job_work_from_home, false) AS is_remote,
         COALESCE(job_no_degree_mention, false) AS no_degree_required,
         COALESCE(job_health_insurance, false) AS has_health_insurance,
@@ -74,6 +77,7 @@ SELECT job_id,
     has_health_insurance,
     pays_above_title_median,
     opportunity_score,
+    -- Tier thresholds: 3-4 -> High, 2 -> Medium, 0-1 -> Low
     CASE
         WHEN opportunity_score >= 3 THEN 'High'
         WHEN opportunity_score = 2 THEN 'Medium'
@@ -86,14 +90,13 @@ FROM scored;
 SELECT COUNT(*) AS total_postings
 FROM opportunity_mart.snapshot_job_opportunity;
 
--- Distribution across tiers
 SELECT opportunity_tier,
     COUNT(*) AS posting_count
 FROM opportunity_mart.snapshot_job_opportunity
 GROUP BY opportunity_tier
 ORDER BY posting_count DESC;
 
--- job_id should be unique (snapshot grain, one row per posting)
+-- job_id should be unique at this grain
 SELECT job_id,
     COUNT(*) AS row_count
 FROM opportunity_mart.snapshot_job_opportunity

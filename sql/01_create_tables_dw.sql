@@ -1,7 +1,4 @@
-/*
- SCHEMA SETUP
- Drops existing tables (if any) and recreates the star schema
- */
+/* Star schema DDL: drops and recreates all warehouse tables */
 DROP TABLE IF EXISTS bridge_job_skills;
 
 DROP TABLE IF EXISTS fact_job_postings;
@@ -10,21 +7,18 @@ DROP TABLE IF EXISTS dim_skills;
 
 DROP TABLE IF EXISTS dim_company;
 
--- Dimension: companies
 CREATE TABLE IF NOT EXISTS dim_company (
     company_id INT PRIMARY KEY,
     company_name VARCHAR(255)
 );
 
--- Dimension: skills, with a type/category label
 CREATE TABLE IF NOT EXISTS dim_skills (
     skill_id INT PRIMARY KEY,
     skill_name VARCHAR(255),
     skill_type VARCHAR(255)
 );
 
--- Fact table: one row per job posting
--- Links to dim_company via company_id
+-- Grain: one row per job posting
 CREATE TABLE IF NOT EXISTS fact_job_postings (
     job_id INT PRIMARY KEY,
     company_id INT,
@@ -45,7 +39,7 @@ CREATE TABLE IF NOT EXISTS fact_job_postings (
     FOREIGN KEY (company_id) REFERENCES dim_company(company_id)
 );
 
--- Bridge table: many-to-many link between jobs and skills
+-- Many-to-many resolver: one job can require many skills, one skill spans many jobs
 CREATE TABLE IF NOT EXISTS bridge_job_skills (
     job_id INT,
     skill_id INT,
@@ -54,7 +48,6 @@ CREATE TABLE IF NOT EXISTS bridge_job_skills (
     FOREIGN KEY (skill_id) REFERENCES dim_skills(skill_id)
 );
 
--- Sanity check: confirm all tables were created in the schema
 SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = 'main';

@@ -2,7 +2,6 @@ DROP SCHEMA IF EXISTS skills_mart CASCADE;
 
 CREATE SCHEMA skills_mart;
 
--- Dim: Skills 
 SELECT 'Loading Dim Skills for Skills Mart' AS info;
 
 CREATE TABLE IF NOT EXISTS skills_mart.dim_skills (
@@ -11,14 +10,12 @@ CREATE TABLE IF NOT EXISTS skills_mart.dim_skills (
     skill_type VARCHAR(255)
 );
 
--- Direct copy from warehouse dim, no transformation needed
 INSERT INTO skills_mart.dim_skills (skill_id, skill_name, skill_type)
 SELECT skill_id,
     skill_name,
     skill_type
 FROM dim_skills;
 
--- Dim: Date (monthly grain) 
 SELECT 'Loading Dim Date for Skills Mart' AS info;
 
 CREATE TABLE IF NOT EXISTS skills_mart.dim_date_month (
@@ -31,7 +28,7 @@ CREATE TABLE IF NOT EXISTS skills_mart.dim_date_month (
 );
 
 -- One row per distinct month present in the fact data
--- Cast DATE_TRUNC result to DATE (it returns TIMESTAMP by default)
+-- DATE_TRUNC returns TIMESTAMP by default, so it's cast to DATE for the join key
 INSERT INTO skills_mart.dim_date_month (
         month_start_date,
         year,
@@ -67,11 +64,10 @@ SELECT DISTINCT CAST(DATE_TRUNC('month', job_posted_date) AS DATE) AS month_star
 FROM fact_job_postings
 ORDER BY month_start_date;
 
--- Fact: Skill demand, monthly grain
 SELECT 'Loading Fact Skills for Skills Mart' AS info;
 
 -- Grain: skill_id + month_start_date + job_title_short
--- Measures are additive counts, safe to re-aggregate at any level
+-- All measures are additive counts, safe to re-aggregate at any level
 CREATE TABLE IF NOT EXISTS skills_mart.fact_skill_demand_monthly (
     skill_id INT,
     month_start_date DATE,
@@ -95,7 +91,7 @@ INSERT INTO skills_mart.fact_skill_demand_monthly (
         remote_postings_count,
         health_insurance_postings_count,
         no_degree_mention_postings_count
-    ) -- Flatten boolean flags to 0/1 so they can be summed as additive counts
+    ) -- Flatten booleans to 0/1 so they can be summed as additive counts
     WITH job_postings_prep AS (
         SELECT bjs.skill_id,
             CAST(DATE_TRUNC('month', fjp.job_posted_date) AS DATE) AS month_start_date,
@@ -135,7 +131,7 @@ ORDER BY skill_id,
     month_start_date,
     job_title_short;
 
--- Validation 
+-- Validation
 SELECT 'Dim Skills' AS table_name,
     COUNT(*) AS row_count
 FROM skills_mart.dim_skills
@@ -148,7 +144,6 @@ SELECT 'Fact Skill Demand',
     COUNT(*)
 FROM skills_mart.fact_skill_demand_monthly;
 
--- Sample rows for a quick sanity check
 SELECT 'Skill Dimension Sample' AS info;
 
 SELECT *

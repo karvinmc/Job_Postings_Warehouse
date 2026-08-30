@@ -1,3 +1,6 @@
+-- DEBUG/DEMO ONLY: mutates fact_job_postings to simulate a new incoming
+-- batch, so 06_update_opportunity_mart.sql has changes to react to.
+-- Insert a new posting (new job_id) -> should trigger INSERT in the MERGE
 INSERT INTO fact_job_postings (
         job_id,
         company_id,
@@ -38,6 +41,7 @@ SELECT (
 FROM fact_job_postings
 LIMIT 1;
 
+-- Flip an existing posting's attributes -> should trigger UPDATE (tier change) in the MERGE
 UPDATE fact_job_postings
 SET job_work_from_home = TRUE,
     job_health_insurance = TRUE
@@ -49,6 +53,7 @@ WHERE job_id = (
         LIMIT 1
     );
 
+-- Remove a posting (skipping the one just inserted) -> should trigger DELETE in the MERGE
 DELETE FROM bridge_job_skills
 WHERE job_id = (
         SELECT job_id
