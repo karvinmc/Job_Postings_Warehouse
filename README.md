@@ -73,8 +73,8 @@ The pipeline loads job posting CSVs from Google Cloud Storage into a normalized 
 Star schema with `dim_company`, `dim_skills`, `fact_job_postings`, and `bridge_job_skills`.
 
 - **SQL Files:**
-  - [`01_create_tables_dw.sql`](./01_create_tables_dw.sql) – Defines the star schema
-  - [`02_load_schema_dw.sql`](./02_load_schema_dw.sql) – Loads CSVs from GCS into the warehouse tables
+  - [`01_create_tables_dw.sql`](./sql/01_create_tables_dw.sql) – Defines the star schema
+  - [`02_load_schema_dw.sql`](./sql/02_load_schema_dw.sql) – Loads CSVs from GCS into the warehouse tables
 - **Purpose:** Single source of truth for all downstream marts
 - **Grain:** One row per job posting in `fact_job_postings`
 
@@ -82,7 +82,7 @@ Star schema with `dim_company`, `dim_skills`, `fact_job_postings`, and `bridge_j
 
 Denormalized table with all dimensions joined, for ad-hoc queries.
 
-- **SQL File:** [`03_create_flat_mart.sql`](./03_create_flat_mart.sql)
+- **SQL File:** [`03_create_flat_mart.sql`](./sql/03_create_flat_mart.sql)
 - **Purpose:** Quick ad-hoc queries without joining across tables
 - **Grain:** One row per job posting, skills aggregated into an array
 
@@ -90,7 +90,7 @@ Denormalized table with all dimensions joined, for ad-hoc queries.
 
 Time-series skill demand analysis with additive measures.
 
-- **SQL File:** [`04_create_skills_mart.sql`](./04_create_skills_mart.sql)
+- **SQL File:** [`04_create_skills_mart.sql`](./sql/04_create_skills_mart.sql)
 - **Purpose:** Track skill demand over time, broken down by job title
 - **Grain:** `skill_id + month_start_date + job_title_short`
 - **Key Features:** All measures are additive counts, safe to re-aggregate at any level
@@ -100,9 +100,9 @@ Time-series skill demand analysis with additive measures.
 Current snapshot of job postings, tagged with a computed opportunity tier and kept in sync via MERGE.
 
 - **SQL Files:**
-  - [`05_create_opportunity_mart.sql`](./05_create_opportunity_mart.sql) – Initial build of the opportunity snapshot
-  - [`06_update_opportunity_mart.sql`](./06_update_opportunity_mart.sql) – Incremental update using MERGE
-  - [`demo_new_batch.sql`](./demo_new_batch.sql) – Mutates a few rows in the source table to demo the MERGE branches; debug/demo only, not part of production runs
+  - [`05_create_opportunity_mart.sql`](./sql/05_create_opportunity_mart.sql) – Initial build of the opportunity snapshot
+  - [`06_update_opportunity_mart.sql`](./sql/06_update_opportunity_mart.sql) – Incremental update using MERGE
+  - [`demo_new_batch.sql`](./sql/demo_new_batch.sql) – Mutates a few rows in the source table to demo the MERGE branches; debug/demo only, not part of production runs
 - **Purpose:** Tag each posting with a composite opportunity score so downstream tools can filter or sort without recomputing the logic
 - **Grain:** One row per job posting
 - **Scoring rule:** Each posting earns one point for each of the following: remote-friendly, no degree required, offers health insurance, and pays above the median for that job title (via a `MEDIAN() OVER (PARTITION BY ...)` window function). Score maps to a tier: High (3–4), Medium (2), Low (0–1)
