@@ -1,3 +1,9 @@
+/*
+ DATA LOAD
+ Populates each table from CSV files hosted on GCS,
+ then validates row counts and previews sample rows
+ */
+-- Load companies
 SELECT 'Loading company dimension table...' AS info;
 
 INSERT INTO dim_company (company_id, company_name)
@@ -8,6 +14,7 @@ FROM read_csv(
         AUTO_DETECT = TRUE
     );
 
+-- Load skills
 SELECT 'Loading skills dimension table...' AS info;
 
 INSERT INTO dim_skills (skill_id, skill_name, skill_type)
@@ -19,6 +26,7 @@ FROM read_csv(
         AUTO_DETECT = TRUE
     );
 
+-- Load job postings
 SELECT 'Loading job postings fact table...' AS info;
 
 INSERT INTO fact_job_postings (
@@ -60,6 +68,7 @@ FROM read_csv(
         AUTO_DETECT = TRUE
     );
 
+-- Load job-skill relationships into the bridge table
 SELECT 'Loading job skills bridge table...' AS info;
 
 INSERT INTO bridge_job_skills (job_id, skill_id)
@@ -70,7 +79,7 @@ FROM read_csv(
         AUTO_DETECT = TRUE
     );
 
--- Data validation
+-- Data validation: row counts per table
 SELECT 'Dim Company' AS table_name,
     COUNT(*) AS row_count
 FROM dim_company
@@ -87,7 +96,7 @@ SELECT 'Bridge Job Skills',
     COUNT(*) AS row_count
 FROM bridge_job_skills;
 
--- Sample data from each table
+-- Sample rows from each table, for a quick visual check
 SELECT 'Company Dimension Sample' AS info;
 
 SELECT *
