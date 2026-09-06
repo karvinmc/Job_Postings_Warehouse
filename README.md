@@ -1,6 +1,6 @@
 # 🏗️ Data Warehouse & Mart Build: Production ETL Pipeline
 
-An end-to-end data engineering pipeline that transforms raw CSV files from Google Cloud Storage into a normalized star schema data warehouse, then builds analytical data marts on top of it.
+An end-to-end data engineering pipeline that transforms raw CSV files from Google Cloud Storage into a normalized star schema data warehouse, then builds analytical data marts on top of it, orchestrated by a Python runner with per-step logging and failure isolation.
 
 ---
 
@@ -11,6 +11,7 @@ An end-to-end data engineering pipeline that transforms raw CSV files from Googl
 - Implemented idempotent load and transformation logic with validation queries at every step
 - Built three data marts (flat, skills, opportunity), each with a distinct grain and purpose
 - Implemented a MERGE-based incremental update pipeline demonstrating INSERT, UPDATE, and DELETE in a single statement
+- Replaced the master SQL script with a Python orchestrator (`run_pipeline.py`) that runs each step in isolation, logs timing and row counts to a queryable `pipeline_run_log` table, and exits non-zero on failure for CI use
 
 ---
 
@@ -24,7 +25,7 @@ Raw job posting data arrives as flat CSV files in Google Cloud Storage, not stru
 
 A single warehouse gives the organization one consistent source of truth. Data marts sit on top of it, pre-aggregating or pre-scoring data for specific use cases so consumers aren't repeating expensive logic at query time.
 
-**Note on scope:** This project follows a guided build through the warehouse and the first two marts (flat, skills). From the third mart onward, the design is my own: a job opportunity mart with a composite scoring rule and a MERGE-based incremental update, built to practice production upsert patterns rather than to replicate a reference implementation.
+**Note on scope:** This project follows a guided build through the warehouse and the first two marts (flat, skills). From the third mart onward, the design is my own: a job opportunity mart with a composite scoring rule and a MERGE-based incremental update, built to practice production upsert patterns rather than to replicate a reference implementation. The Python orchestration layer (`run_pipeline.py`) is also my own addition, built to practice pipeline observability and failure handling beyond what a single SQL script can express.
 
 ---
 
@@ -37,10 +38,10 @@ Raw CSV data sourced from Luke Barousse's [SQL Data Engineering Course](https://
 ## 🧰 Tech Stack
 
 - **Database:** DuckDB (file-based OLAP database with GCS integration via `httpfs`)
-- **Language:** SQL (DDL for schema design, DML for loading and transformation)
+- **Language:** SQL (DDL for schema design, DML for loading and transformation), Python (pipeline orchestration)
 - **Data Model:** Star schema (fact, dimension, and bridge tables)
-- **Development:** VS Code for SQL editing, terminal for DuckDB CLI execution
-- **Automation:** Master SQL script for pipeline orchestration
+- **Development:** VS Code for SQL/Python editing, terminal for execution
+- **Automation:** Python orchestrator (`run_pipeline.py`) using the `duckdb` Python client, with a CLI for running the full pipeline or individual steps
 - **Version Control:** Git/GitHub for versioned pipeline scripts
 - **Storage:** Google Cloud Storage for source CSV files
 
@@ -57,8 +58,8 @@ job-postings-warehouse/
 │   ├── 04_create_skills_mart.sql        # Skills demand mart
 │   ├── 05_create_opportunity_mart.sql   # Opportunity mart, initial build
 │   ├── 06_update_opportunity_mart.sql   # Opportunity mart incremental update (MERGE)
-│   ├── demo_new_batch.sql               # Mutates sample data to demo the MERGE (debug/demo only)
-│   └── build_dw_marts.sql               # Master SQL build script
+│   └── demo_new_batch.sql               # Mutates sample data to demo the MERGE (debug/demo only)
+├── run_pipeline.py                      # Python orchestrator — runs all steps, logs each to pipeline_run_log
 └── README.md                            # You are here
 ```
 
@@ -93,7 +94,7 @@ Time-series skill demand analysis with additive measures.
 - **SQL File:** [`04_create_skills_mart.sql`](./sql/04_create_skills_mart.sql)
 - **Purpose:** Track skill demand over time, broken down by job title
 - **Grain:** `skill_id + month_start_date + job_title_short`
-- **Key Features:** All measures are additive counts, safe to re-aggregate at any level
+- **Key Features:** All measures are additive counts, safe to re-aggregate at any level; three related tables (`dim_skills`, `dim_date_month`, `fact_skill_demand_monthly`) rather than a single flat table
 
 ### Opportunity Mart
 
@@ -110,6 +111,18 @@ Current snapshot of job postings, tagged with a computed opportunity tier and ke
 
 ---
 
+## 🐍 Pipeline Orchestration (`run_pipeline.py`)
+
+Replaces a single master SQL script with a Python runner that treats each pipeline step as an independently monitored unit of work, using the `duckdb` Python client against the same DuckDB file the SQL scripts write to.
+
+- **Ordered execution:** Steps are declared as a list of `(name, sql_file, tables_to_count)` entries and run in sequence — reordering or disabling a step is a one-line change, not a script rewrite
+- **Failure isolation:** Each step runs in its own try/except; a failure stops the pipeline before later steps run against a partially-updated warehouse, instead of failing silently or corrupting downstream tables
+- **Run auditing:** Every run writes to a `pipeline_run_log` table inside the same DuckDB database — `run_id`, step name, status, row count(s), start/end time, and duration — so pipeline history is queryable with plain SQL rather than scraped from console output
+- **Per-table row counts:** Steps that write multiple tables (e.g. the skills mart's `dim_skills`, `dim_date_month`, and `fact_skill_demand_monthly`) log one row count per table, not one combined number, so a regression in a single table is visible without cross-referencing the SQL
+- **CLI:** `python run_pipeline.py` runs the full pipeline; `--step <name>` reruns a single step in isolation (e.g. after fixing a bug, without replaying the whole build); `--list` shows configured steps; `--db <path>` points at a specific DuckDB file. Exit code is non-zero on failure, making it CI-friendly (e.g. GitHub Actions)
+
+---
+
 ## 💻 Data Engineering Skills Demonstrated
 
 ### ETL Pipeline Development
@@ -118,7 +131,7 @@ Current snapshot of job postings, tagged with a computed opportunity tier and ke
 - **Transform:** Data normalization, type conversion (`CAST`, `DATE_TRUNC`), and null handling (`COALESCE`)
 - **Load:** Idempotent table and schema creation with `DROP ... IF EXISTS` patterns
 - **Incremental Updates:** MERGE for upsert and soft-delete patterns (INSERT, UPDATE, DELETE in one statement)
-- **Orchestration:** Master SQL script (`build_dw_marts.sql`) for automated pipeline execution
+- **Orchestration:** Python runner (`run_pipeline.py`) for automated, monitored pipeline execution with a CLI for full or partial runs
 
 ### Dimensional Modeling
 
@@ -137,10 +150,18 @@ Current snapshot of job postings, tagged with a computed opportunity tier and ke
 - **Nested Types:** `ARRAY_AGG` and `STRUCT_PACK` to collapse a one-to-many skill relationship into a single column without duplicating fact rows
 - **Boolean Logic:** `CASE WHEN` conversions for aggregating flags (remote, health insurance, no degree) and combining them into a composite score
 
+### Python & Automation
+
+- **DuckDB Python Client:** Executes SQL scripts and queries programmatically, sharing one connection across a full pipeline run so later steps can depend on tables (including `TEMP TABLE`s) created by earlier ones
+- **Error Handling:** Per-step try/except with exceptions caught, logged with their full message, and surfaced without crashing the whole run
+- **CLI Design:** `argparse`-based interface (`--step`, `--db`, `--list`) for running the full pipeline or a single step in isolation
+- **Type Hints & Dataclasses:** A `Step` dataclass with typed fields (`str | list[str] | None`) documents each step's shape directly in code
+
 ### Data Quality & Production Practices
 
 - **Idempotency:** All build scripts are safely rerunnable without side effects
 - **Data Validation:** Row counts, uniqueness checks, and sample previews at each pipeline step
+- **Pipeline Observability:** `pipeline_run_log` table capturing status, row counts, and duration for every step of every run, queryable independently of the console output
 - **Type Safety:** Explicit data types (`VARCHAR`, `INTEGER`, `DOUBLE`, `BOOLEAN`, `TIMESTAMP`)
 - **Schema Organization:** Separate schemas (`flat_mart`, `skills_mart`, `opportunity_mart`) for logical separation from the warehouse
 - **Reproducible Demos:** A dedicated script (`demo_new_batch.sql`) to simulate an incoming batch, so the MERGE logic can be verified end to end rather than assumed to work
